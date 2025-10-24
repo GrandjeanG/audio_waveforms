@@ -97,7 +97,10 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
 
             var db = 20 * log10(rms)
             if !db.isFinite { db = -160.0 }
-            self.currentDbValue = db
+
+            let minDb: Float = -160.0
+            let normalized = max(0, (db - minDb) / abs(minDb))
+            self.currentDbValue = normalized
         }
 
         engine.prepare()
