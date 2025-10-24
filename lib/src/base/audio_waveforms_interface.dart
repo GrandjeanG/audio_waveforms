@@ -47,9 +47,13 @@ class AudioWaveformsInterface {
   }
 
   ///platform call to stop recording
-  Future<Map<String, dynamic>> stop() async {
+  Future<Map<String, dynamic>> stop({
+    bool overrideAudioSession = false
+  }) async {
     Map<Object?, Object?> audioInfo =
-        await _methodChannel.invokeMethod(Constants.stopRecording);
+        await _methodChannel.invokeMethod(Constants.stopRecording, {
+          Constants.overrideAudioSession: overrideAudioSession,
+        });
     return audioInfo.cast<String, dynamic>();
   }
 

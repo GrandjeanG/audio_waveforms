@@ -32,6 +32,10 @@ class RecorderBytesStreamEngine {
         }
     }
 
+    func getAudioFormat() -> AVAudioFormat? {
+        return audioFormat
+    }
+
     func detach() {
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
