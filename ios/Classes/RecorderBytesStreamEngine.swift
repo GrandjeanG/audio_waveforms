@@ -32,8 +32,8 @@ class RecorderBytesStreamEngine {
         }
     }
 
-    func getAudioFormat() -> AVAudioFormat? {
-        return audioFormat
+    func getAudioEngine() -> AVAudioEngine {
+        return audioEngine
     }
 
     func detach() {

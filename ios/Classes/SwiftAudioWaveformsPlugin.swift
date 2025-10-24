@@ -40,7 +40,7 @@ public class SwiftAudioWaveformsPlugin: NSObject, FlutterPlugin {
         case Constants.resumeRecording:
             audioRecorder.resumeRecording(result)
         case Constants.stopRecording:
-            audioRecorder.stopRecording(result)
+            audioRecorder.stopRecording(result, RecordingSettings.fromJson((args)))
             break
         case Constants.getDecibel:
             audioRecorder.getDecibel(result)

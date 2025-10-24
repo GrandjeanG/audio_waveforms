@@ -70,7 +70,7 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate{
         }
     }
     
-    public func stopRecording(_ result: @escaping FlutterResult,_ recordingSettings: RecordingSettings) {
+    func stopRecording(_ result: @escaping FlutterResult,_ recordingSettings: RecordingSettings) {
         audioRecorder?.stop()
         bytesStreamEngine.detach()
         if(audioUrl != nil) {
@@ -122,7 +122,7 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate{
                 let amp = audioRecorder?.averagePower(forChannel: 0) ?? 0.0
                 result(amp)
         } else {
-            guard let inputNode = bytesStreamEngine.getAudioFormat().inputNode else {
+            guard let inputNode = bytesStreamEngine.getAudioEngine().inputNode else {
                 result(FlutterError(code: Constants.audioWaveforms, message: "Input node not available", details: nil))
                 return
             }
