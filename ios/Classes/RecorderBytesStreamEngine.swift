@@ -17,7 +17,7 @@ class RecorderBytesStreamEngine {
         flutterChannel = channel
     }
 
-    func attach() {
+    func attach(_ result: @escaping FlutterResult) {
         let inputNode = audioEngine.inputNode
         audioFormat = inputNode.outputFormat(forBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: audioFormat) { (buffer, time) in
