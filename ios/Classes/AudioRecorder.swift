@@ -115,19 +115,36 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate{
         audioRecorder?.record()
         result(true)
     }
-    
+
     public func getDecibel(_ result: @escaping FlutterResult) {
-        audioRecorder?.updateMeters()
-        if(useLegacyNormalization){
-            let amp = audioRecorder?.averagePower(forChannel: 0) ?? 0.0
-            result(amp)
+        if (useLegacyNormalization){
+                audioRecorder?.updateMeters()
+                let amp = audioRecorder?.averagePower(forChannel: 0) ?? 0.0
+                result(amp)
         } else {
-            let amp = audioRecorder?.peakPower(forChannel: 0) ?? 0.0
-            let linear = pow(10, amp / 20);
-            result(linear)
+            guard let inputNode = bytesStreamEngine.audioEngine.inputNode else {
+                        result(FlutterError(code: Constants.audioWaveforms, message: "Input node not available", details: nil))
+                        return
+            }
+
+            let format = inputNode.outputFormat(forBus: 0)
+            let bufferSize: AVAudioFrameCount = 1024
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: bufferSize)
+
+            do {
+                try inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: format) { (buffer, _) in
+                    guard let channelData = buffer.floatChannelData?[0] else { return }
+                    let frameLength = Int(buffer.frameLength)
+                    let rms = sqrt(channelData.prefix(frameLength).map { $0 * $0 }.reduce(0, +) / Float(frameLength))
+                    let db = 20 * log10(rms)
+                    result(db.isFinite ? db : -160.0) // Return -160 dB if the value is not finite
+                }
+            } catch {
+                result(FlutterError(code: Constants.audioWaveforms, message: "Failed to calculate decibel", details: error.localizedDescription))
+            }
         }
     }
-    
+
     public func checkHasPermission(_ result: @escaping FlutterResult){
         switch AVAudioSession.sharedInstance().recordPermission{
             
