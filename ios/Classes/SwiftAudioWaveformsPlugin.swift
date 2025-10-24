@@ -40,6 +40,10 @@ public class SwiftAudioWaveformsPlugin: NSObject, FlutterPlugin {
         case Constants.resumeRecording:
             audioRecorder.resumeRecording(result)
         case Constants.stopRecording:
+            guard let args = call.arguments as? Dictionary<String, Any> else {
+                result(FlutterError(code: Constants.audioWaveforms, message: "Invalid Arguments", details: nil))
+                return
+            }
             audioRecorder.stopRecording(result, RecordingSettings.fromJson((args)))
             break
         case Constants.getDecibel:
