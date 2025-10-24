@@ -1,29 +1,33 @@
 import AVFoundation
 import Accelerate
 
-public class AudioRecorder: NSObject, AVAudioRecorderDelegate{
+public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
     var audioRecorder: AVAudioRecorder?
+    var audioEngine: AVAudioEngine?
+    var inputNode: AVAudioInputNode?
     var path: String?
     var useLegacyNormalization: Bool = false
     var audioUrl: URL?
     var recordedDuration: CMTime = CMTime.zero
     var flutterChannel: FlutterMethodChannel
     var bytesStreamEngine: RecorderBytesStreamEngine
-    init(channel: FlutterMethodChannel){
+    private var instantPower: Float = 0.0
+
+    init(channel: FlutterMethodChannel) {
         flutterChannel = channel
         bytesStreamEngine = RecorderBytesStreamEngine(channel: channel)
     }
 
-    func startRecording(_ result: @escaping FlutterResult,_ recordingSettings: RecordingSettings){
+    func startRecording(_ result: @escaping FlutterResult,_ recordingSettings: RecordingSettings) {
         useLegacyNormalization = recordingSettings.useLegacy ?? false
 
         var settings: [String: Any] = [
-                AVFormatIDKey: getEncoder(recordingSettings.encoder ?? 0),
-                AVSampleRateKey: recordingSettings.sampleRate ?? 44100,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-            ]
-        
+            AVFormatIDKey: getEncoder(recordingSettings.encoder ?? 0),
+            AVSampleRateKey: recordingSettings.sampleRate ?? 44100,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+        ]
+
         if (recordingSettings.bitRate != nil) {
             settings[AVEncoderBitRateKey] = recordingSettings.bitRate
         }
@@ -45,37 +49,61 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate{
         } else {
             self.path = recordingSettings.path
         }
-        
-        
+
         do {
             if recordingSettings.overrideAudioSession {
                 try AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: options)
                 try AVAudioSession.sharedInstance().setActive(true)
             }
             audioUrl = URL(fileURLWithPath: self.path!)
-            
-            if(audioUrl == nil){
+
+            if(audioUrl == nil) {
                 result(FlutterError(code: Constants.audioWaveforms, message: "Failed to initialise file URL", details: nil))
                 return
             }
-            audioRecorder = try AVAudioRecorder(url: audioUrl!, settings: settings as [String : Any])
-            
+
+            // Initialize AVAudioEngine
+            audioEngine = AVAudioEngine()
+            inputNode = audioEngine?.inputNode
+            let format = inputNode!.outputFormat(forBus: 0)
+
+            inputNode!.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] (buffer, _) in
+                self?.processAudioBuffer(buffer: buffer)
+            }
+
+            // Start both AVAudioRecorder and AVAudioEngine
+            audioRecorder = try AVAudioRecorder(url: audioUrl!, settings: settings)
             audioRecorder?.delegate = self
-            audioRecorder?.isMeteringEnabled = true
             audioRecorder?.record()
+
+            try audioEngine?.start()
             bytesStreamEngine.attach()
             result(true)
         } catch {
             result(FlutterError(code: Constants.audioWaveforms, message: "Failed to start recording", details: error.localizedDescription))
         }
     }
-    
+
+    private func processAudioBuffer(buffer: AVAudioPCMBuffer) {
+        guard let channelData = buffer.floatChannelData?[0] else { return }
+        let channelDataArray = Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
+
+        // Calculate RMS (Root Mean Square)
+        let rms = sqrt(channelDataArray.map { $0 * $0 }.reduce(0, +) / Float(channelDataArray.count))
+
+        // Convert RMS to decibels
+        instantPower = rms
+    }
+
     public func stopRecording(_ result: @escaping FlutterResult) {
         audioRecorder?.stop()
+        inputNode?.removeTap(onBus: 0)
+        audioEngine?.stop()
         bytesStreamEngine.detach()
+
         if(audioUrl != nil) {
-            let asset = AVURLAsset(url:  audioUrl!)
-            
+            let asset = AVURLAsset(url: audioUrl!)
+
             if #available(iOS 15.0, *) {
                 Task {
                     do {
@@ -93,10 +121,12 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate{
         } else {
             sendResult(result, duration: Int(CMTime.zero.seconds))
         }
+
         if recordingSettings.overrideAudioSession {
             try? AVAudioSession.sharedInstance().setActive(false)
         }
         audioRecorder = nil
+        audioEngine = nil
     }
     
     private func sendResult(_ result: @escaping FlutterResult, duration:Int){
@@ -115,16 +145,14 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate{
         audioRecorder?.record()
         result(true)
     }
-    
+
     public func getDecibel(_ result: @escaping FlutterResult) {
-        audioRecorder?.updateMeters()
-        if(useLegacyNormalization){
+        if useLegacyNormalization {
+            audioRecorder?.updateMeters()
             let amp = audioRecorder?.averagePower(forChannel: 0) ?? 0.0
             result(amp)
         } else {
-            let amp = audioRecorder?.peakPower(forChannel: 0) ?? 0.0
-            let linear = pow(10, amp / 20);
-            result(linear)
+            result(instantPower)
         }
     }
     
