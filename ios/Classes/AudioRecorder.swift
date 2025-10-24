@@ -123,8 +123,8 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate{
                 result(amp)
         } else {
             guard let inputNode = bytesStreamEngine.audioEngine.inputNode else {
-                        result(FlutterError(code: Constants.audioWaveforms, message: "Input node not available", details: nil))
-                        return
+                result(FlutterError(code: Constants.audioWaveforms, message: "Input node not available", details: nil))
+                return
             }
 
             let format = inputNode.outputFormat(forBus: 0)
