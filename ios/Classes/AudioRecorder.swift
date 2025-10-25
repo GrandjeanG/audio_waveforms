@@ -79,7 +79,7 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             let date = Date()
             let formatter = DateFormatter()
             formatter.dateFormat = Constants.fileNameFormat
-            let fileName = formatter.string(from: date) + ".waw"
+            let fileName = formatter.string(from: date) + ".wav"
             self.path = "\(documentDirectory)/\(fileName)"
         } else {
             self.path = recordingSettings.path
