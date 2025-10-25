@@ -179,8 +179,12 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             // Pause instead of stop so engine stays ready for next use
             audioEngine?.pause()
             if let file = outputFile {
-                file.framePosition = 0
-                outputFile = nil
+                do {
+                    try file.close() // Close the file to ensure proper cleanup
+                    outputFile = nil // Reset the reference
+                } catch {
+                    print("Error closing audio file:", error)
+                }
             }
             isUsingEngine = false
             sendResult(result, duration: 0)
