@@ -191,40 +191,48 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
                 return
             }
 
-            // Remove the tap and allow time for final buffers to flush
+            // Remove tap safely (if active)
             inputNode?.removeTap(onBus: 0)
 
-            // Wait briefly for pending buffers to write
-            engine.mainMixerNode.outputVolume = 0 // silence output to avoid clicks
-            engine.stop()
-
-            // ⚡ Give 100–200ms to flush I/O (as AVAudioFile writes asynchronously)
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            // Allow pending buffers to flush
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.15) { [weak self] in
                 guard let self = self else { return }
 
+                // Close output file cleanly
                 do {
                     if #available(iOS 18.0, *) {
                         try self.outputFile?.close()
                     }
-                    self.outputFile = nil
                 } catch {
                     print("Error closing audio file:", error)
                 }
+                self.outputFile = nil
 
+                // Leave the engine paused (NOT stopped)
+                // Keeping it paused maintains the internal graph ready for instant restart.
+                if engine.isRunning {
+                    engine.pause()
+                }
+
+                // Reset monitoring value and flags
+                self.currentDbValue = -160.0
                 self.isUsingEngine = false
+
+                // Send result back to Flutter
                 self.sendResult(result, duration: 0)
             }
 
             return
         }
 
-        // Fallback: AVAudioRecorder path
+        // 🎙️ Fallback: AVAudioRecorder path
         audioRecorder?.stop()
         guard let url = audioUrl else {
             sendResult(result, duration: 0)
             return
         }
 
+        // ✅ Compute and return duration safely
         let asset = AVURLAsset(url: url)
         if #available(iOS 15.0, *) {
             Task {
@@ -239,8 +247,10 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             recordedDuration = asset.duration
             sendResult(result, duration: Int(recordedDuration.seconds * 1000))
         }
+
         audioRecorder = nil
     }
+
 
     // MARK: - Pause & Resume
     public func pauseRecording(_ result: @escaping FlutterResult) {
