@@ -175,27 +175,39 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
     // MARK: - Stop Recording
     public func stopRecording(_ result: @escaping FlutterResult) {
         if isUsingEngine {
-            inputNode?.removeTap(onBus: 0)
-            // Pause instead of stop so engine stays ready for next use
-            audioEngine?.pause()
-            if #available(iOS 18.0, *) {
-                if let file = outputFile {
-                    do {
-                        try file.close() // Close the file on iOS 18 or later
-                        outputFile = nil // Reset the reference
-                    } catch {
-                        print("Error closing audio file:", error)
-                    }
-                }
-            } else {
-                // For earlier iOS versions, set the reference to nil
-                outputFile = nil
+            guard let engine = audioEngine else {
+                sendResult(result, duration: 0)
+                return
             }
-            isUsingEngine = false
-            sendResult(result, duration: 0)
+
+            // Remove the tap and allow time for final buffers to flush
+            inputNode?.removeTap(onBus: 0)
+
+            // Wait briefly for pending buffers to write
+            engine.mainMixerNode.outputVolume = 0 // silence output to avoid clicks
+            engine.stop()
+
+            // ⚡ Give 100–200ms to flush I/O (as AVAudioFile writes asynchronously)
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                guard let self = self else { return }
+
+                do {
+                    if #available(iOS 18.0, *) {
+                        try self.outputFile?.close()
+                    }
+                    self.outputFile = nil
+                } catch {
+                    print("Error closing audio file:", error)
+                }
+
+                self.isUsingEngine = false
+                self.sendResult(result, duration: 0)
+            }
+
             return
         }
 
+        // Fallback: AVAudioRecorder path
         audioRecorder?.stop()
         guard let url = audioUrl else {
             sendResult(result, duration: 0)
@@ -216,7 +228,6 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             recordedDuration = asset.duration
             sendResult(result, duration: Int(recordedDuration.seconds * 1000))
         }
-
         audioRecorder = nil
     }
 
