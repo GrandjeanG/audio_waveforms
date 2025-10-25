@@ -6,6 +6,7 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
     // MARK: - Properties
     private var audioRecorder: AVAudioRecorder?
     private var audioEngine: AVAudioEngine?
+    private var outputFile: AVAudioFile?
     private var inputNode: AVAudioInputNode?
     private var path: String?
     private var useLegacyNormalization: Bool = false
@@ -13,6 +14,43 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
     private var recordedDuration: CMTime = .zero
     private var currentDbValue: Float = -160.0
     private var isUsingEngine: Bool = false
+
+    // ⚡ PERFORMANCE OPTIMIZATION: prepare audio session and engine once at init
+    override public init() {
+        super.init()
+        prepareAudioSession()
+        prepareAudioEngine()
+    }
+
+    // MARK: - Preload audio session and engine
+    private func prepareAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("Failed to pre-activate AVAudioSession:", error)
+        }
+    }
+
+    private func prepareAudioEngine() {
+        audioEngine = AVAudioEngine()
+        guard let engine = audioEngine else { return }
+
+        // Force internal allocation of the input node format
+        _ = engine.inputNode.inputFormat(forBus: 0)
+        engine.prepare()
+
+        // ⚡ Pre-warm the microphone once so it starts faster later
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) {
+            do {
+                try engine.start()
+                engine.pause()
+            } catch {
+                print("Failed to pre-start audio engine:", error)
+            }
+        }
+    }
 
     // MARK: - Start Recording
     func startRecording(_ result: @escaping FlutterResult, _ recordingSettings: RecordingSettings) {
@@ -48,12 +86,14 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
         }
 
         do {
-            if recordingSettings.overrideAudioSession {
-                try AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: options)
-                try AVAudioSession.sharedInstance().setActive(true)
+            // Avoid re-activating audio session if already active
+            let session = AVAudioSession.sharedInstance()
+            if recordingSettings.overrideAudioSession && !session.isOtherAudioPlaying {
+                try session.setCategory(.playAndRecord, options: options)
+                try session.setActive(true)
             }
 
-            // ✅ Use AVAudioEngine when available
+            // Use AVAudioEngine on modern iOS
             if #available(iOS 10.0, *) {
                 try startEngineRecording()
                 isUsingEngine = true
@@ -61,7 +101,7 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
                 return
             }
 
-            // 🎙️ Fallback: AVAudioRecorder
+            // Fallback to AVAudioRecorder (for older devices)
             audioUrl = URL(fileURLWithPath: self.path!)
             audioRecorder = try AVAudioRecorder(url: audioUrl!, settings: settings)
             audioRecorder?.delegate = self
@@ -76,9 +116,12 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
         }
     }
 
-    // MARK: - AVAudioEngine setup
+    // MARK: - AVAudioEngine recording
     private func startEngineRecording() throws {
-        audioEngine = AVAudioEngine()
+        // Reuse engine if already prepared
+        if audioEngine == nil {
+            audioEngine = AVAudioEngine()
+        }
         guard let engine = audioEngine else {
             throw NSError(domain: "AudioEngine", code: -1, userInfo: nil)
         }
@@ -87,10 +130,23 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
         let format = inputNode!.inputFormat(forBus: 0)
         let bufferSize: AVAudioFrameCount = 1024
 
+        // Create output file
+        let fileUrl = URL(fileURLWithPath: self.path!)
+        outputFile = try AVAudioFile(forWriting: fileUrl, settings: format.settings)
+
+        inputNode!.removeTap(onBus: 0)
         inputNode!.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, _ in
             guard let self = self,
                   let channelData = buffer.floatChannelData?[0] else { return }
 
+            // Write the audio buffer to file
+            do {
+                try self.outputFile?.write(from: buffer)
+            } catch {
+                print("Error writing audio buffer:", error)
+            }
+
+            // Compute RMS → dB → linear normalized value
             let frameLength = Int(buffer.frameLength)
             var rms: Float = 0.0
             vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(frameLength))
@@ -109,16 +165,23 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             self.currentDbValue = normalized
         }
 
-        engine.prepare()
-        try engine.start()
+        // Do not re-prepare if already running
+        if !engine.isRunning {
+            engine.prepare()
+            try engine.start()
+        }
     }
 
     // MARK: - Stop Recording
     public func stopRecording(_ result: @escaping FlutterResult) {
         if isUsingEngine {
             inputNode?.removeTap(onBus: 0)
-            audioEngine?.stop()
-            audioEngine?.reset()
+            // Pause instead of stop so engine stays ready for next use
+            audioEngine?.pause()
+            if let file = outputFile {
+                file.framePosition = 0
+                outputFile = nil
+            }
             isUsingEngine = false
             sendResult(result, duration: 0)
             return
