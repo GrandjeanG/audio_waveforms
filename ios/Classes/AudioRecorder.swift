@@ -99,7 +99,13 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             if !db.isFinite { db = -160.0 }
 
             let minDb: Float = -160.0
-            let normalized = max(0, (db - minDb) / abs(minDb))
+            let maxDb: Float = 0.0
+
+            let linear = pow(10.0, db / 20.0)
+            let minLinear = pow(10.0, minDb / 20.0)
+            let maxLinear = pow(10.0, maxDb / 20.0)
+
+            let normalized = (linear - minLinear) / (maxLinear - minLinear)
             self.currentDbValue = normalized
         }
 
