@@ -178,13 +178,18 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             inputNode?.removeTap(onBus: 0)
             // Pause instead of stop so engine stays ready for next use
             audioEngine?.pause()
-            if let file = outputFile {
-                do {
-                    try file.close() // Close the file to ensure proper cleanup
-                    outputFile = nil // Reset the reference
-                } catch {
-                    print("Error closing audio file:", error)
+            if #available(iOS 18.0, *) {
+                if let file = outputFile {
+                    do {
+                        try file.close() // Close the file on iOS 18 or later
+                        outputFile = nil // Reset the reference
+                    } catch {
+                        print("Error closing audio file:", error)
+                    }
                 }
+            } else {
+                // For earlier iOS versions, set the reference to nil
+                outputFile = nil
             }
             isUsingEngine = false
             sendResult(result, duration: 0)
