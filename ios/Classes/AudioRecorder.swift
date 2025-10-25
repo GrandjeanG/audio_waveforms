@@ -79,7 +79,7 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             let date = Date()
             let formatter = DateFormatter()
             formatter.dateFormat = Constants.fileNameFormat
-            let fileName = formatter.string(from: date) + ".m4a"
+            let fileName = formatter.string(from: date) + ".waw"
             self.path = "\(documentDirectory)/\(fileName)"
         } else {
             self.path = recordingSettings.path
@@ -131,8 +131,19 @@ public class AudioRecorder: NSObject, AVAudioRecorderDelegate {
         let bufferSize: AVAudioFrameCount = 1024
 
         // Create output file
+        // Force Linear PCM 16-bit LE (WAV compatible)
+        let wavSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 44100,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsFloatKey: false
+        ]
+
         let fileUrl = URL(fileURLWithPath: self.path!)
-        outputFile = try AVAudioFile(forWriting: fileUrl, settings: format.settings)
+        outputFile = try AVAudioFile(forWriting: fileUrl, settings: wavSettings)
+        self.path = fileUrl.path
 
         inputNode!.removeTap(onBus: 0)
         inputNode!.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, _ in

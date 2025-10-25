@@ -47,7 +47,11 @@ class _HomeState extends State<Home> {
 
   void _getDir() async {
     appDirectory = await getApplicationDocumentsDirectory();
-    path = "${appDirectory.path}/recording.m4a";
+    if (Platform.isIOS) {
+      path = "${appDirectory.path}/recording.wav";
+    } else {
+      path = "${appDirectory.path}/recording.m4a";
+    }
     isLoading = false;
     setState(() {});
   }
